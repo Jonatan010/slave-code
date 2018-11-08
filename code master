@@ -1,0 +1,207 @@
+#include <Wire.h>
+            #include <Keypad.h>
+            #include <Servo.h> 
+            
+            // counter 
+            int counter = 0;
+            
+            
+            // KEYPAD
+            #define ROWS 4
+            #define COLS 3
+            
+            const char keys[ROWS][COLS] = {
+             { '1' , '2' , '3'} ,
+             { '4' , '5' , '6'} ,
+             { '7' , '8' , '9'} ,
+             { '\0' , '0' , '\0'}
+            };
+            
+            const byte rowPins [ ROWS ] = {30 , 32 , 34, 36};
+            const byte colPins [ COLS ] = {38 , 40 , 42};
+            
+            Keypad keypad = Keypad ( makeKeymap ( keys ) , rowPins , colPins , ROWS , COLS );
+            
+            // SERVO 
+            #define servoPin 3
+            Servo myServo; 
+            
+            //l2c
+            int liftPosition = 0; //The current lift position
+            int nextLiftPosition = 0; 
+            
+            int liftPositionArray[3] = {8,8,8};
+            int nextLiftPositionArray[3] = {8,8,8};
+            
+            //used for getting data from and to slaves
+            int const connectedSlaves =3;
+            
+            //define array as names for easier code reading
+            int buttonUp[3] = {0,0,0}; //Array for reading data from slaves
+            int buttonDown[3] = {0,0,0}; //Array for reading data from slaves
+            int sensor[3] = {0,0,0}; //Array for reading data from slaves
+            /*
+            #define masterData[0] 
+            #define masterData[1] 
+            #define masterData[2]
+            */
+            
+            // Array for buttons 
+            int calledFloorsArray[connectedSlaves] = {8,8,8};
+            boolean sensorsTriggeredArray[connectedSlaves];
+            
+            // Boolean for checkForMoveLift();
+            boolean goUp = false;
+            boolean goDown = false; 
+            boolean moving = false;
+            
+            void setup() {
+              Wire.begin();
+              Serial.begin(9600);
+              myServo.attach(servoPin);
+            }
+            
+            void loop() {
+               getAndSendDataToSlaves();
+               getArrayValue();
+               keypadInput();
+            }
+            
+            void getAndSendDataToSlaves(){
+              Wire.requestFrom(8,3);
+                  while (Wire.available()){
+                    buttonUp[0] = Wire.read();
+                    buttonDown[0] = Wire.read();
+                    sensor[0] = Wire.read();
+                      if (sensor[0] == 1){
+                        liftPosition = 0;
+                        liftArrived();
+                        
+                      }
+                      else if (buttonUp[0] == 1){
+                        nextLiftPositionArray[0] = 0;
+                      }
+                      else if (buttonDown[0] == 1){
+                       nextLiftPositionArray[0] = 0;
+                      }    
+                  }
+              Wire.requestFrom(9,3);
+                  while (Wire.available()){
+                    buttonUp[1] = Wire.read();
+                    buttonDown[1] = Wire.read();
+                    sensor[1] = Wire.read();
+                      if (sensor[1] == 1){
+                        liftPosition = 1;
+                        liftArrived();
+                        
+                      }
+                      else if (buttonUp[1] == 1){
+                        nextLiftPositionArray[1] = 1;
+                      }
+                      else if (buttonDown[1] == 1){
+                       nextLiftPositionArray[1] = 1;
+                      }    
+                  }  
+                  Wire.requestFrom(10,3);
+                  while (Wire.available()){
+                    buttonUp[2]= Wire.read();
+                    buttonDown[2] = Wire.read();
+                    sensor[2] = Wire.read();
+                      if (sensor[2] == 1){
+                        liftPosition = 2;
+                        liftArrived();
+                        
+                      }
+                      else if (buttonUp[2] == 1){
+                        nextLiftPositionArray[2] = 2;
+                      }
+                      else if (buttonDown[2] == 1){
+                       nextLiftPositionArray[2] = 2;
+                      }    
+                  }  
+              
+              Wire.beginTransmission(8);
+              Wire.write(liftPosition);
+              Wire.endTransmission();
+            
+              Wire.beginTransmission(9);
+              Wire.write(liftPosition);
+              Wire.endTransmission();
+              
+              Wire.beginTransmission(10);
+              Wire.write(liftPosition);
+              Wire.endTransmission();
+            }
+            
+            void keypadInput(){
+                char key = keypad.getKey();
+              if(key) {
+                int input = key - '0';
+                   nextLiftPositionArray[input] = input;
+              }
+            }
+            
+            void liftArrived(){
+               if (nextLiftPositionArray[counter] == liftPosition){
+                Serial.print("AANGEKOMEN OP: ");
+                        nextLiftPositionArray[counter] = 8; 
+                        liftPositionArray[counter] = 8;
+                Serial.println(liftPosition);
+                myServo.write(90);
+                delay(3000);
+                return;
+               } else{
+                return;
+               }
+            }
+            
+            void getArrayValue(){
+              keypadInput();
+              for (counter = 0; counter <= 2; counter++){
+                if (nextLiftPositionArray[counter] != 8){
+                  Serial.print("Ik ga naar verdieping: ");
+                  Serial.println(nextLiftPositionArray[counter]);
+                  whereToGo();
+                }
+                else if (nextLiftPositionArray[counter] == 8){
+                  myServo.write(90);
+                  Serial.println("No floor would like to use the lift");
+                }
+              }  
+            } 
+            
+            void whereToGo(){
+              keypadInput();
+              if (nextLiftPositionArray[counter] < liftPosition){
+                Serial.println("LIFT GOING DOWN");
+                goDown = true;
+                goUp = false;
+                moving = true;
+              }
+              else if (nextLiftPositionArray[counter] > liftPosition){
+                Serial.println("LIFT GOING UP");
+                goDown = false;
+                goUp = true;
+                moving = true;
+              }
+              else {
+                Serial.println("CURRENT FLOOR WOULD LIKE TO USE THE LIFT");
+                return;
+              }
+               liftControl();
+            }
+            
+            void liftControl(){
+              do {  
+                keypadInput();
+                getAndSendDataToSlaves();
+                if (goDown == true){
+                  myServo.write(0);
+                  Serial.println("Ik ga omlaag");
+                } else if (goUp == true) {
+                  myServo.write(180);
+                  Serial.println("Ik ga omhoog");
+                }
+              } while (nextLiftPositionArray[counter] != liftPositionArray[counter]);
+            }
+            
