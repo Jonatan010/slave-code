@@ -1,0 +1,157 @@
+/* Dit het is de code voor het eerste deel van het project: lift
+ * In het eerste deel is enkel de werking van een etage geprogrammeerd.
+ * De liftetage heeft een aantal functies.
+ * De eerste is dat een led gaat branden als er een magneet in de buurt van de Reedsensor is. -
+ * De tweede is dat de liftetage aangeeft dat de liftkooi op deze verdieping is als deze in de buurt komt van de magneet.
+ * De derde functie is dat de lichten na ingedrukt te worden enkel uit gaan als de liftkooi op de juiste etage is. 
+ */
+#include <Wire.h>
+#define magnetPin 2
+#define ledPin 3
+const int buttonUp = 4;// the number of the pushbutton pin
+const int buttonDown = 5;  
+const int ledUpin =  6;
+const int ledDownPin =  7;// the number of the LED pin
+const int latchPin = 12;//Pin connected to ST_CP of 74HC595
+const int clockPin = 8;//Pin connected to SH_CP of 74HC595 
+const int dataPin = 11; //Pin connected to DS of 74HC595 
+/*=======================================================================================================
+//display 0,1,2,3,4,5,6,7,8
+Number 0 :  00000011     3 
+Number 1 :  10101111     159 
+Number 2 :  00100101     37
+Number 3 :  00001101     13
+Number 4 :  10011001     153
+Number 5 :  01001001     73
+Number 6 :  01000001     65
+Number 7 :  00011111     31
+Number 8 :  00000001     1
+
+To display the dot, simply subtract 1.
+example : 1 - 1 = 0  or b0000000 0x0 to display 8
+*/
+/*In order to display zero your array has decimal number 3. However using the shift register
+it is actuall the binary number that is uploaded into the resitsre: zie the table above for zero: 00000011. 
+*/
+int magnetState = 0;
+int buttonUpState = 0; 
+int buttonDownState = 0; 
+
+// Gewenste kant waar de lift naar toe moet
+boolean goUp = false;
+boolean goDown = false;
+boolean onFloor = false;
+int liftPosition;
+
+// Huidige kant waar de lift heen gaat
+int movingUp =0;
+int movingDown =0;
+
+
+
+// In deze rij staan de heximale getallen voor de getallen die op het 7 segment display staan.
+int datArray[9] = {3, 159, 37, 13, 153, 73, 65, 31, 1}; 
+
+// Array om data naar de master te sturen;
+byte byteArray[3] = {0,0,0};
+
+void setup() {
+  Serial.begin(9600);
+  // communicatie met de master
+  Wire.begin(9);
+  Wire.onRequest(masterOnRequest);
+  Wire.onReceive(masterOnReceive);
+  // sensor
+  pinMode(magnetPin, INPUT); // informatie komt de pin binnen, namelijk het lezen van de staat van de magneet.
+  pinMode(ledPin, OUTPUT);
+  // shift register
+  pinMode(latchPin,OUTPUT);
+  pinMode(clockPin,OUTPUT);
+  pinMode(dataPin,OUTPUT); 
+  // knoppen en ingebouwde LED's
+  pinMode(ledUpin, OUTPUT);
+  pinMode(buttonUp , INPUT_PULLUP);
+  pinMode(ledDownPin, OUTPUT);
+  pinMode(buttonDown, INPUT_PULLUP);
+
+}
+
+void loop() {  
+  // staat van de sensor lezen:
+  magnetState = 1-  digitalRead(magnetPin); // De staat van de magneet wordt gelezen door te kijken of de Reed een signaal doorgeeft.
+  // Staat van de knoppen lezen:
+  buttonUpState =  1 - digitalRead(4);
+  buttonDownState = 1- digitalRead(5);
+
+  if (buttonUpState == 1 and magnetState == 0){
+    digitalWrite(ledUpin, HIGH); 
+    Serial.println("ledUpin ingedrukt");
+    goUp = true;
+    goDown = false;
+    }
+   else if (buttonDownState == 1 and magnetState == 0){
+    digitalWrite(ledDownPin, HIGH); 
+    Serial.println("ledDownPin ingedrukt");
+    goUp = false;
+    goDown = true;
+    }
+   else if (magnetState == 1){
+    digitalWrite(ledUpin, LOW);
+    digitalWrite(ledDownPin, LOW);
+    digitalWrite(ledPin, HIGH);
+    Serial.println("magneet gedetecteerd");
+    onFloor = true;
+    }
+    else if (buttonUpState == LOW and buttonDownState == LOW and magnetState == 0) {
+      digitalWrite(ledPin, LOW);
+      goUp = false;
+      goDown = false;
+      onFloor = false;
+    }
+
+}
+
+void masterOnRequest(){
+  if (goUp == true){
+    byteArray[0] = 1;
+  } else {
+    byteArray[0] = 0;
+  }
+  if (goDown == true){
+    byteArray[1] = 1;
+  } else{
+    byteArray[1] = 0;
+  }
+  if (onFloor == true){
+    byteArray[2] = 1;
+    byteArray[3] = 1;
+  } else {
+    byteArray[2] = 0;
+    byteArray[3] = 0;
+  }
+
+  //communication to master
+  Wire.write(byteArray[0]);
+  Wire.write(byteArray[1]);
+  Wire.write(byteArray[2]);
+  //prints values to serial monitor
+  Serial.print("goUp: ");
+  Serial.println(byteArray[0]);
+  Serial.print("goDown: ");
+  Serial.println(byteArray[1]);
+  Serial.print("onFloor: ");
+  Serial.println(byteArray[2]);
+  Serial.print("LiftPosition: ");
+ }
+ 
+void masterOnReceive(){
+  while (Wire.available()){
+    liftPosition = Wire.read();
+  }
+
+  // 7 segment display shows current position of the lift
+  digitalWrite(latchPin, HIGH); // Er gaat stroom naar de ST_CP.
+  shiftOut(dataPin,clockPin,MSBFIRST,datArray[liftPosition]); // In deze functie worden bytes doorgewisseld. 
+  digitalWrite(latchPin, LOW); // Stroom is weer uit naar de ST_CP.
+ 
+}
